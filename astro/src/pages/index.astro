@@ -1,0 +1,171 @@
+---
+const apiBase = "http://localhost:3000";
+import "../styles/global.css";
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Auto Plant Watering Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+
+  <!-- pass apiBase via data attribute to avoid template injection issues -->
+  <body data-api-base={apiBase} class="bg-gray-50 flex items-center justify-center min-h-screen font-sans">
+    <main class="bg-white rounded-3xl shadow-lg p-12 w-[960px] max-w-[92vw]">
+      <header class="flex items-center justify-between mb-8">
+        <h1 class="text-4xl font-semibold text-gray-900 flex items-center gap-3">
+          Auto Plant Watering Dashboard <span class="text-green-600">🌱</span>
+        </h1>
+      </header>
+
+      <section class="grid grid-cols-2 gap-8 items-center">
+        <div>
+          <p class="text-gray-600 text-lg">Soil Humidity</p>
+          <p id="humidity" class="text-7xl font-extrabold text-gray-900 mt-3">--%</p>
+
+          <div class="w-full bg-gray-200 rounded-full h-5 mt-6">
+            <div id="humidity-bar" class="bg-green-500 h-5 rounded-full transition-all duration-500" style="width:0%"></div>
+          </div>
+        </div>
+
+        <div class="text-right">
+          <p class="text-gray-600 text-lg">Pump:</p>
+          <p id="pump-state" class="text-3xl font-semibold text-gray-500 mt-2">Loading...</p>
+
+          <div class="mt-8 text-left">
+            <p class="text-gray-700">Last updated</p>
+            <p id="last-updated" class="text-xl font-medium mt-1">--</p>
+          </div>
+        </div>
+
+        <div class="pt-6">
+          <p class="text-gray-700">Total Activations Today</p>
+          <p id="activations" class="text-4xl font-semibold mt-3">--x</p>
+        </div>
+
+        <div class="pt-6 flex justify-end gap-4">
+          <button
+            id="view-log"
+            class="border border-gray-300 text-gray-800 rounded-xl px-6 py-3 text-lg hover:bg-gray-100 transition"
+            title="View history"
+          >
+            View Detailed Log
+          </button>
+
+          <button
+            id="manual-water"
+            class="bg-green-600 text-white rounded-xl px-6 py-3 text-lg hover:bg-green-700 transition disabled:opacity-60"
+            title="Toggle pump"
+          >
+            Manual Water
+          </button>
+        </div>
+      </section>
+
+      <p id="error" class="mt-6 text-sm text-red-600 hidden"></p>
+    </main>
+
+    <script>
+      // read apiBase from body data attribute (safe, no template interpolation)
+      const apiBase = document.body.dataset.apiBase;
+
+      const $humidity = document.getElementById('humidity');
+      const $humidityBar = document.getElementById('humidity-bar');
+      const $pump = document.getElementById('pump-state');
+      const $activations = document.getElementById('activations');
+      const $lastUpdated = document.getElementById('last-updated');
+      const $manual = document.getElementById('manual-water');
+      const $viewLog = document.getElementById('view-log');
+      const $error = document.getElementById('error');
+
+      let toggling = false;
+
+      async function fetchStatus() {
+        $error.classList.add('hidden');
+        try {
+          const [statsRes, relayRes] = await Promise.all([
+            fetch(`${apiBase}/stats/today`),
+            fetch(`${apiBase}/relay/status`)
+          ]);
+
+          if (!statsRes.ok || !relayRes.ok) {
+            throw new Error('Bad response from API');
+          }
+
+          const stats = await statsRes.json();
+          const relay = await relayRes.json();
+
+          const humidity = typeof stats.averageHumidity === 'number' ? stats.averageHumidity : 0;
+          // backend returns relayToggleCount as relayToggleCount; fallback to older naming
+          const activations = typeof stats.relayToggleCount === 'number' ? stats.relayToggleCount : (stats.relayToggleCountToday ?? 0);
+          const pumpOn = Boolean(relay.relayState);
+          const lastUpdated = relay.lastUpdated ? new Date(relay.lastUpdated) : new Date();
+
+          // Update DOM
+          $humidity.textContent = `${humidity}%`;
+          $humidityBar.style.width = `${Math.max(0, Math.min(100, humidity))}%`;
+
+          $pump.textContent = pumpOn ? 'ON' : 'OFF';
+          $pump.classList.toggle('text-green-600', pumpOn);
+          $pump.classList.toggle('text-gray-500', !pumpOn);
+
+          $activations.textContent = `${activations}x`;
+          $lastUpdated.textContent = lastUpdated.toLocaleString();
+        } catch (err) {
+          console.error(err);
+          $error.textContent = 'Unable to reach backend. Check the server.';
+          $error.classList.remove('hidden');
+        }
+      }
+
+      async function manualToggle() {
+        if (toggling) return;
+        toggling = true;
+        $manual.disabled = true;
+        $error.classList.add('hidden');
+
+        try {
+          const res = await fetch(`${apiBase}/relay/toggle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'toggle' })
+          });
+
+          if (!res.ok) throw new Error('Toggle failed');
+
+          const data = await res.json();
+
+          if (typeof data.relayState === 'boolean') {
+            $pump.textContent = data.relayState ? 'ON' : 'OFF';
+            $pump.classList.toggle('text-green-600', data.relayState);
+            $pump.classList.toggle('text-gray-500', !data.relayState);
+            $lastUpdated.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : new Date().toLocaleString();
+            await fetchStatus();
+          } else {
+            await fetchStatus();
+          }
+        } catch (err) {
+          console.error(err);
+          $error.textContent = 'Manual toggle failed.';
+          $error.classList.remove('hidden');
+        } finally {
+          toggling = false;
+          $manual.disabled = false;
+        }
+      }
+
+      $viewLog.addEventListener('click', () => {
+        window.open(`${apiBase}/history?limit=200`, '_blank');
+      });
+
+      $manual.addEventListener('click', manualToggle);
+
+      fetchStatus();
+      const interval = setInterval(fetchStatus, 1000);
+      window.addEventListener('beforeunload', () => clearInterval(interval));
+    </script>
+  </body>
+</html>

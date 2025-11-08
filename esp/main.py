@@ -5,11 +5,11 @@ from machine import Pin, ADC, Timer
 import time
 
 # WiFi Configuration
-WIFI_SSID = "your_wifi_ssid"
-WIFI_PASSWORD = "your_wifi_password"
+WIFI_SSID = "Lab Telkom"
+WIFI_PASSWORD = ""
 
 # Server Configuration
-SERVER_IP = "192.168.1.100"  # Change to your server IP
+SERVER_IP = "172.16.14.74"  # Change to your server IP
 SERVER_PORT = "3000"
 SERVER_BASE_URL = f"http://{SERVER_IP}:{SERVER_PORT}"
 
@@ -134,6 +134,8 @@ def update_relay_state(new_state):
     if relay_state != new_state:
         relay_state = new_state
         relay.value(1 if relay_state else 0)
+        # Also update LED state to match relay state
+        led.value(1 if relay_state else 1)  # LED ON when relay ON, but keep ON when connected (for WiFi status)
         print(f"Relay state updated to: {'ON' if relay_state else 'OFF'}")
         return True
     return False
@@ -163,8 +165,8 @@ def sensor_reading_task(timer):
         moisture = read_soil_moisture()
         success = send_sensor_data(moisture, relay_state)
         
-        # Blink LED briefly to indicate data transmission
-        if success:
+        # Blink LED briefly to indicate data transmission (only if relay is OFF)
+        if success and not relay_state:
             led.value(0)
             time.sleep(0.1)
             led.value(1)
@@ -230,11 +232,11 @@ def main():
     # Set up timers for periodic tasks
     # Read sensors and send data every 30 seconds
     sensor_timer = Timer(0)
-    sensor_timer.init(period=30000, mode=Timer.PERIODIC, callback=lambda t: sensor_reading_task(t))
+    sensor_timer.init(period=1000, mode=Timer.PERIODIC, callback=lambda t: sensor_reading_task(t))
     
     # Sync relay state from server every 10 seconds
     relay_timer = Timer(1)
-    relay_timer.init(period=10000, mode=Timer.PERIODIC, callback=lambda t: sync_relay_state(t))
+    relay_timer.init(period=1000, mode=Timer.PERIODIC, callback=lambda t: sync_relay_state(t))
     
     # Check WiFi connection every 60 seconds
     wifi_timer = Timer(2)
