@@ -185,4 +185,4 @@ setInterval(() => {
   if (now.getHours() === 0 && now.getMinutes() === 0) {
     relayToggleCountToday = 0;
   }
-}, 60000); // Check every minute
+}, 60000); // Check every minute$
