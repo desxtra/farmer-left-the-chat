@@ -4,6 +4,7 @@
 /node_modules
 /.pnp
 .pnp.js
+node_modules/
 
 # testing
 /coverage
@@ -43,3 +44,4 @@ package-lock.json
 
 # database
 sensor.db
+elysia/sensor.db
