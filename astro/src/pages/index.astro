@@ -17,7 +17,7 @@ import "../styles/global.css";
     <main class="bg-white rounded-3xl shadow-lg p-12 w-[960px] max-w-[92vw]">
       <header class="flex items-center justify-between mb-8">
         <h1 class="text-4xl font-semibold text-gray-900 flex items-center gap-3">
-          Auto Plant Watering Dashboard <span class="text-green-600">🌱</span>
+          Dashboard<span class="text-green-600">🌱</span>
         </h1>
       </header>
 
@@ -47,13 +47,13 @@ import "../styles/global.css";
         </div>
 
         <div class="pt-6 flex justify-end gap-4">
-          <button
-            id="view-log"
-            class="border border-gray-300 text-gray-800 rounded-xl px-6 py-3 text-lg hover:bg-gray-100 transition"
-            title="View history"
+          <a
+            href="/reports"
+            class="border border-gray-300 text-gray-800 rounded-xl px-6 py-3 text-lg hover:bg-gray-100 transition no-underline"
+            title="View detailed reports"
           >
-            View Detailed Log
-          </button>
+            View Detailed Reports
+          </a>
 
           <button
             id="manual-water"
@@ -157,9 +157,9 @@ import "../styles/global.css";
         }
       }
 
-      $viewLog.addEventListener('click', () => {
-        window.open(`${apiBase}/history?limit=200`, '_blank');
-      });
+      // $viewLog.addEventListener('click', () => {
+      //   window.open(`${apiBase}/history?limit=200`, '_blank');
+      // });
 
       $manual.addEventListener('click', manualToggle);
 

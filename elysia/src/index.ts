@@ -6,15 +6,16 @@ const app = new Elysia();
 
 // Enable CORS for all routes
 app.use(cors({
-  origin: true, // Allow all origins, or specify your frontend URL: 'http://localhost:5173'
+  origin: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // Initialize SQLite database
 const db = new Database('sensor.db');
 
-// Create table if it doesn't exist
+// Create tables if they don't exist
 db.run(`
   CREATE TABLE IF NOT EXISTS sensor_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,23 +25,38 @@ db.run(`
   )
 `);
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS system_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message TEXT NOT NULL,
+    type TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 // Store current relay state in memory for quick access
 let currentRelayState = false;
-let relayToggleCountToday = 0;
+let lastRelayChange = new Date().toISOString();
+
+// Helper function to log system events
+function logSystemEvent(message: string, type: string = 'info') {
+  const stmt = db.prepare(`
+    INSERT INTO system_logs (message, type) VALUES (?, ?)
+  `);
+  stmt.run(message, type);
+  console.log(`[${type.toUpperCase()}] ${message}`);
+}
 
 // Helper function to get today's toggle count from database
-function updateTodayToggleCount() {
+function getTodayToggleCount(): number {
   const today = new Date().toISOString().split('T')[0];
   const stmt = db.prepare(`
     SELECT COUNT(*) as count FROM sensor_data 
     WHERE DATE(timestamp) = ? AND relay_state = true
   `);
   const result = stmt.get(today) as { count: number };
-  relayToggleCountToday = result.count;
+  return result.count;
 }
-
-// Initialize today's count
-updateTodayToggleCount();
 
 // Helper function to insert sensor data
 function insertSensorData(humidity: number, relayState: boolean) {
@@ -49,35 +65,53 @@ function insertSensorData(humidity: number, relayState: boolean) {
   `);
   stmt.run(humidity, relayState ? 1 : 0);
   
-  // Update toggle count if relay was turned on
-  if (relayState && !currentRelayState) {
-    updateTodayToggleCount();
+  // Log state changes
+  if (relayState !== currentRelayState) {
+    logSystemEvent(`Relay state changed to: ${relayState ? 'ON' : 'OFF'}`, 'relay');
+    lastRelayChange = new Date().toISOString();
   }
   
   currentRelayState = relayState;
 }
 
+// Initialize system log
+logSystemEvent('System started', 'system');
+
 // Routes
 app
+  // Health check endpoint
+  .get("/health", () => {
+    return {
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      currentRelayState,
+      todayToggleCount: getTodayToggleCount()
+    };
+  })
+  
   // Get current status
   .get("/", () => {
     return {
       message: "Humidity Monitoring System",
       currentRelayState,
-      relayToggleCountToday
+      relayToggleCountToday: getTodayToggleCount(),
+      lastRelayChange
     };
   })
   
-  // Submit sensor data
+  // Submit sensor data from ESP32
   .post("/sensor-data", 
     ({ body }) => {
       insertSensorData(body.humidity, body.relay_state);
+      
+      logSystemEvent(`Sensor data received - Humidity: ${body.humidity}%, Relay: ${body.relay_state}`, 'sensor');
       
       return {
         success: true,
         message: "Sensor data recorded",
         currentRelayState,
-        relayToggleCountToday
+        relayToggleCountToday: getTodayToggleCount(),
+        timestamp: new Date().toISOString()
       };
     },
     {
@@ -88,23 +122,25 @@ app
     }
   )
   
-  // Manual relay control
+  // Manual relay control from frontend
   .post("/relay/toggle", 
     ({ body }) => {
       const newRelayState = body.action === 'on' ? true : 
                            body.action === 'off' ? false : 
                            !currentRelayState;
       
-      // Record the relay state change with current humidity
-      const placeholderHumidity = 50;
+      // Record the relay state change with current humidity (placeholder)
+      const placeholderHumidity = 50; // You might want to get the latest humidity
       
       insertSensorData(placeholderHumidity, newRelayState);
+      
+      logSystemEvent(`Manual relay toggle - New state: ${newRelayState ? 'ON' : 'OFF'}`, 'manual');
       
       return {
         success: true,
         message: `Relay turned ${newRelayState ? 'ON' : 'OFF'}`,
         relayState: newRelayState,
-        relayToggleCountToday,
+        relayToggleCountToday: getTodayToggleCount(),
         timestamp: new Date().toISOString()
       };
     },
@@ -115,16 +151,36 @@ app
     }
   )
   
+  // Set relay state explicitly (for ESP32 sync)
+  .post("/relay/set", 
+    ({ body }) => {
+      insertSensorData(body.humidity || 50, body.state);
+      
+      return {
+        success: true,
+        message: `Relay set to ${body.state ? 'ON' : 'OFF'}`,
+        relayState: body.state,
+        timestamp: new Date().toISOString()
+      };
+    },
+    {
+      body: t.Object({
+        state: t.Boolean(),
+        humidity: t.Optional(t.Number({ minimum: 0, maximum: 100 }))
+      })
+    }
+  )
+  
   // Get relay status
   .get("/relay/status", () => {
     return {
       relayState: currentRelayState,
-      toggleCountToday: relayToggleCountToday,
-      lastUpdated: new Date().toISOString()
+      toggleCountToday: getTodayToggleCount(),
+      lastUpdated: lastRelayChange
     };
   })
   
-  // Get historical data
+  // Get historical sensor data
   .get("/history", 
     ({ query }) => {
       const limit = query.limit || 100;
@@ -149,6 +205,28 @@ app
     }
   )
   
+  // Get system logs
+  .get("/logs", 
+    ({ query }) => {
+      const limit = query.limit || 100;
+      const stmt = db.prepare(`
+        SELECT * FROM system_logs 
+        ORDER BY timestamp DESC 
+        LIMIT ?
+      `);
+      const data = stmt.all(limit) as any[];
+      
+      return {
+        data
+      };
+    },
+    {
+      query: t.Object({
+        limit: t.Optional(t.Number({ minimum: 1, maximum: 1000 }))
+      })
+    }
+  )
+  
   // Get today's statistics
   .get("/stats/today", () => {
     const today = new Date().toISOString().split('T')[0];
@@ -160,6 +238,15 @@ app
     `);
     const avgHumidity = avgHumidityStmt.get(today) as { avg_humidity: number };
     
+    // Latest humidity
+    const latestHumidityStmt = db.prepare(`
+      SELECT humidity FROM sensor_data 
+      WHERE DATE(timestamp) = ?
+      ORDER BY timestamp DESC 
+      LIMIT 1
+    `);
+    const latestHumidity = latestHumidityStmt.get(today) as { humidity: number };
+    
     // Relay toggle count today
     const toggleStmt = db.prepare(`
       SELECT COUNT(*) as toggle_count FROM sensor_data 
@@ -170,19 +257,49 @@ app
     return {
       date: today,
       averageHumidity: Math.round(avgHumidity.avg_humidity || 0),
+      currentHumidity: latestHumidity?.humidity || 0,
       relayToggleCount: toggleCount.toggle_count,
       currentRelayState
     };
   })
   
-  .listen(3000);
+  // Get detailed analytics
+  .get("/analytics", 
+    ({ query }) => {
+      const days = query.days || 7;
+      
+      const stmt = db.prepare(`
+        SELECT 
+          DATE(timestamp) as date,
+          AVG(humidity) as avg_humidity,
+          MAX(humidity) as max_humidity,
+          MIN(humidity) as min_humidity,
+          COUNT(CASE WHEN relay_state = true THEN 1 END) as pump_activations
+        FROM sensor_data 
+        WHERE timestamp >= date('now', ?)
+        GROUP BY DATE(timestamp)
+        ORDER BY date DESC
+      `);
+      const data = stmt.all(`-${days} days`) as any[];
+      
+      return {
+        period: `${days} days`,
+        data
+      };
+    },
+    {
+      query: t.Object({
+        days: t.Optional(t.Number({ minimum: 1, maximum: 30 }))
+      })
+    }
+  );
 
-console.log(`Elysia is running at ${app.server?.hostname}:${app.server?.port}`);
+// Start server
+app.listen({
+  hostname: "0.0.0.0",
+  port: 3000
+});
 
-// Update toggle count at midnight
-setInterval(() => {
-  const now = new Date();
-  if (now.getHours() === 0 && now.getMinutes() === 0) {
-    relayToggleCountToday = 0;
-  }
-}, 60000); // Check every minute$
+console.log(`Elysia is running at http://0.0.0.0:3000`);
+console.log(`Health check: http://0.0.0.0:3000/health`);
+console.log(`System ready for plant watering automation`);

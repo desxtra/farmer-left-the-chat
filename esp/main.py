@@ -3,39 +3,38 @@ import urequests as requests
 import ujson as json
 from machine import Pin, ADC, Timer
 import time
+import sys
 
 # WiFi Configuration
 WIFI_SSID = "Lab Telkom"
 WIFI_PASSWORD = ""
 
-# Server Configuration
-SERVER_IP = "172.16.14.74"  # Change to your server IP
+# Server Configuration - FIX: Use correct server IP
+SERVER_IP = "192.168.1.100"  # CHANGE THIS to your computer's IP on the same network
 SERVER_PORT = "3000"
 SERVER_BASE_URL = f"http://{SERVER_IP}:{SERVER_PORT}"
 
 # Pin Configuration
 RELAY_PIN = 4
-SOIL_MOISTURE_PIN = 34  # Analog pin (GPIO34) for soil moisture sensor
-LED_PIN = 2  # Built-in LED for status indicator
+SOIL_MOISTURE_PIN = 34
+LED_PIN = 2
 
-# Soil Moisture Sensor Calibration
-# You need to calibrate these values for your specific soil and sensor
-DRY_VALUE = 4095  # Value when sensor is dry (in air)
-WET_VALUE = 1500  # Value when sensor is in water
-SOIL_MOISTURE_MIN = 0  # Minimum moisture percentage
-SOIL_MOISTURE_MAX = 100  # Maximum moisture percentage
+# Soil Moisture Sensor Calibration - ADJUST THESE VALUES
+DRY_VALUE = 4095
+WET_VALUE = 1500
 
 # Global variables
 relay_state = False
 last_moisture = 0
 wifi_connected = False
+server_available = False
 
 # Initialize components
 relay = Pin(RELAY_PIN, Pin.OUT)
 led = Pin(LED_PIN, Pin.OUT)
 soil_moisture_sensor = ADC(Pin(SOIL_MOISTURE_PIN))
-soil_moisture_sensor.atten(ADC.ATTN_11DB)  # Configure for 0-3.3V range
-soil_moisture_sensor.width(ADC.WIDTH_12BIT)  # 12-bit resolution (0-4095)
+soil_moisture_sensor.atten(ADC.ATTN_11DB)
+soil_moisture_sensor.width(ADC.WIDTH_12BIT)
 
 def connect_wifi():
     global wifi_connected
@@ -46,87 +45,111 @@ def connect_wifi():
         print('Connecting to WiFi...')
         wlan.connect(WIFI_SSID, WIFI_PASSWORD)
         
-        # Wait for connection
-        timeout = 30
+        timeout = 20
         while not wlan.isconnected() and timeout > 0:
-            led.value(not led.value())  # Blink LED while connecting
+            led.value(not led.value())
             time.sleep(0.5)
             timeout -= 1
             print('.', end='')
         
         if wlan.isconnected():
             wifi_connected = True
-            led.value(1)  # Solid LED when connected
-            print('\nWiFi connected!')
-            print('Network config:', wlan.ifconfig())
+            led.value(1)
+            print('\n✅ WiFi connected!')
+            print('📶 Network config:', wlan.ifconfig())
+            return True
         else:
             wifi_connected = False
             led.value(0)
-            print('\nFailed to connect to WiFi')
-    
-    return wifi_connected
+            print('\n❌ Failed to connect to WiFi')
+            return False
+    return True
 
 def read_soil_moisture():
     global last_moisture
     try:
-        # Read analog value (0-4095)
-        raw_value = soil_moisture_sensor.read()
+        # Take multiple readings for stability
+        readings = []
+        for _ in range(5):
+            readings.append(soil_moisture_sensor.read())
+            time.sleep(0.1)
         
-        # Convert to moisture percentage (inverted because higher reading = drier soil)
-        # The sensor gives higher values in dry conditions, lower in wet conditions
-        moisture_percentage = 100 - map_value(raw_value, DRY_VALUE, WET_VALUE, SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX)
+        raw_value = sum(readings) // len(readings)
         
-        # Constrain between 0-100%
+        # Convert to moisture percentage
+        if raw_value <= WET_VALUE:
+            moisture_percentage = 100
+        elif raw_value >= DRY_VALUE:
+            moisture_percentage = 0
+        else:
+            moisture_percentage = 100 - int((raw_value - WET_VALUE) * 100 / (DRY_VALUE - WET_VALUE))
+        
         moisture_percentage = max(0, min(100, moisture_percentage))
+        last_moisture = moisture_percentage
         
-        last_moisture = int(moisture_percentage)
-        print(f"Raw sensor value: {raw_value}, Moisture: {last_moisture}%")
+        print(f"💧 Sensor - Raw: {raw_value}, Moisture: {last_moisture}%")
         return last_moisture
         
     except Exception as e:
-        print("Error reading soil moisture sensor:", e)
+        print("❌ Error reading soil moisture:", e)
         return last_moisture
 
-def map_value(value, in_min, in_max, out_min, out_max):
-    """Map a value from one range to another"""
-    return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+def check_server_connection():
+    global server_available
+    if not wifi_connected:
+        return False
+    
+    try:
+        response = requests.get(f"{SERVER_BASE_URL}/health", timeout=5)
+        if response.status_code == 200:
+            server_available = True
+            response.close()
+            return True
+        response.close()
+    except Exception as e:
+        print(f"❌ Server connection failed: {e}")
+    
+    server_available = False
+    return False
 
 def send_sensor_data(moisture, relay_state):
-    if not wifi_connected:
-        print("WiFi not connected, cannot send data")
+    if not wifi_connected or not server_available:
+        print("📡 Skipping data send - no connection")
         return False
     
     try:
         url = f"{SERVER_BASE_URL}/sensor-data"
         data = {
-            "humidity": moisture,  # Using 'humidity' field as required by your backend
+            "humidity": moisture,
             "relay_state": relay_state
         }
         
-        print(f"Sending data - Soil Moisture: {moisture}%, Relay: {relay_state}")
+        print(f"📤 Sending - Moisture: {moisture}%, Relay: {relay_state}")
         response = requests.post(
             url,
             json=data,
-            headers={'Content-Type': 'application/json'}
+            headers={'Content-Type': 'application/json'},
+            timeout=10
         )
         
         if response.status_code == 200:
             response_data = response.json()
-            print(f"Data sent successfully")
+            print("✅ Data sent successfully")
             
-            # Update relay state from server response if needed
+            # Update relay state from server if different
             if 'currentRelayState' in response_data:
                 update_relay_state(response_data['currentRelayState'])
             
             response.close()
             return True
         else:
-            print(f"Failed to send data. Status: {response.status_code}")
+            print(f"❌ Send failed. Status: {response.status_code}")
             response.close()
             return False
             
     except Exception as e:
-        print("Error sending sensor data:", e)
+        print("❌ Error sending sensor data:", e)
+        server_available = False
         return False
 
 def update_relay_state(new_state):
@@ -134,128 +157,147 @@ def update_relay_state(new_state):
     if relay_state != new_state:
         relay_state = new_state
         relay.value(1 if relay_state else 0)
-        # Also update LED state to match relay state
-        led.value(1 if relay_state else 1)  # LED ON when relay ON, but keep ON when connected (for WiFi status)
-        print(f"Relay state updated to: {'ON' if relay_state else 'OFF'}")
+        print(f"🔌 Relay {'ACTIVATED' if relay_state else 'DEACTIVATED'}")
+        
+        # Also send the state change to server
+        if wifi_connected and server_available:
+            try:
+                moisture = read_soil_moisture()
+                url = f"{SERVER_BASE_URL}/relay/set"
+                data = {
+                    "state": relay_state,
+                    "humidity": moisture
+                }
+                response = requests.post(url, json=data, timeout=5)
+                response.close()
+            except Exception as e:
+                print("Note: Could not notify server of relay change:", e)
+        
         return True
     return False
 
 def get_relay_status():
     if not wifi_connected:
-        return False
+        return None
     
     try:
         url = f"{SERVER_BASE_URL}/relay/status"
-        response = requests.get(url)
+        response = requests.get(url, timeout=5)
         
         if response.status_code == 200:
             data = response.json()
             response.close()
             return data.get('relayState', False)
-        else:
-            response.close()
-            return False
-            
+        response.close()
     except Exception as e:
-        print("Error getting relay status:", e)
-        return False
+        print("❌ Error getting relay status:", e)
+    
+    return None
 
 def sensor_reading_task(timer):
-    if wifi_connected:
+    if wifi_connected and server_available:
         moisture = read_soil_moisture()
-        success = send_sensor_data(moisture, relay_state)
+        send_sensor_data(moisture, relay_state)
         
-        # Blink LED briefly to indicate data transmission (only if relay is OFF)
-        if success and not relay_state:
+        # Quick blink to indicate activity
+        if not relay_state:
             led.value(0)
-            time.sleep(0.1)
+            time.sleep(0.05)
             led.value(1)
 
 def sync_relay_state(timer):
-    if wifi_connected:
+    if wifi_connected and server_available:
         server_state = get_relay_status()
-        if server_state is not False and server_state != relay_state:
-            print(f"Syncing relay state from server: {server_state}")
+        if server_state is not None and server_state != relay_state:
+            print(f"🔄 Syncing relay state from server: {server_state}")
             update_relay_state(server_state)
 
-def check_wifi_connection(timer):
-    global wifi_connected
+def check_connections(timer):
+    global wifi_connected, server_available
     wlan = network.WLAN(network.STA_IF)
+    
     if not wlan.isconnected():
-        print("WiFi disconnected. Attempting to reconnect...")
+        print("📡 WiFi disconnected, reconnecting...")
         wifi_connected = False
-        led.value(0)  # Turn off LED when disconnected
+        server_available = False
+        led.value(0)
         connect_wifi()
+    elif wifi_connected and not server_available:
+        print("🔄 Checking server connection...")
+        check_server_connection()
 
 def calibrate_sensor():
-    """Function to help calibrate the sensor - run this once to find dry/wet values"""
-    print("=== Sensor Calibration Mode ===")
+    """Run this once to calibrate your sensor"""
+    print("🔧 === Sensor Calibration Mode ===")
     print("Leave sensor in air for dry value...")
-    time.sleep(5)
-    dry_value = 0
-    for i in range(10):
-        dry_value += soil_moisture_sensor.read()
-        time.sleep(1)
-    dry_value = dry_value // 10
-    print(f"Dry value (in air): {dry_value}")
+    time.sleep(3)
     
-    print("Now put sensor in water for wet value...")
-    time.sleep(5)
-    wet_value = 0
+    dry_readings = []
     for i in range(10):
-        wet_value += soil_moisture_sensor.read()
+        dry_readings.append(soil_moisture_sensor.read())
+        print(f"Dry reading {i+1}: {dry_readings[-1]}")
         time.sleep(1)
-    wet_value = wet_value // 10
-    print(f"Wet value (in water): {wet_value}")
+    dry_value = sum(dry_readings) // len(dry_readings)
     
-    print("Calibration complete!")
+    print("\nNow put sensor in water for wet value...")
+    time.sleep(5)
+    
+    wet_readings = []
+    for i in range(10):
+        wet_readings.append(soil_moisture_sensor.read())
+        print(f"Wet reading {i+1}: {wet_readings[-1]}")
+        time.sleep(1)
+    wet_value = sum(wet_readings) // len(wet_readings)
+    
+    print("\n✅ Calibration complete!")
     print(f"DRY_VALUE = {dry_value}")
     print(f"WET_VALUE = {wet_value}")
+    print("Update these values in your code")
 
 def main():
-    print("Initializing Soil Moisture Monitoring System...")
-    print("MH-Sensor Series Soil Moisture + Relay Control")
+    print("🌱 Initializing Auto Plant Watering System...")
     print("==============================================")
     
-    # Uncomment the line below to run calibration (do this once)
+    # Uncomment to calibrate sensor (run once)
     # calibrate_sensor()
     
     # Initial relay state
     update_relay_state(False)
     
     # Connect to WiFi
-    if not connect_wifi():
-        print("WiFi connection failed. Retrying in 10 seconds...")
-        time.sleep(10)
-        connect_wifi()
+    if connect_wifi():
+        check_server_connection()
     
-    # Set up timers for periodic tasks
-    # Read sensors and send data every 30 seconds
+    # Set up timers
+    # Sensor reading every 30 seconds
     sensor_timer = Timer(0)
-    sensor_timer.init(period=1000, mode=Timer.PERIODIC, callback=lambda t: sensor_reading_task(t))
+    sensor_timer.init(period=30000, mode=Timer.PERIODIC, callback=lambda t: sensor_reading_task(t))
     
-    # Sync relay state from server every 10 seconds
+    # Relay sync every 15 seconds
     relay_timer = Timer(1)
-    relay_timer.init(period=1000, mode=Timer.PERIODIC, callback=lambda t: sync_relay_state(t))
+    relay_timer.init(period=15000, mode=Timer.PERIODIC, callback=lambda t: sync_relay_state(t))
     
-    # Check WiFi connection every 60 seconds
-    wifi_timer = Timer(2)
-    wifi_timer.init(period=60000, mode=Timer.PERIODIC, callback=lambda t: check_wifi_connection(t))
+    # Connection check every 60 seconds
+    connection_timer = Timer(2)
+    connection_timer.init(period=60000, mode=Timer.PERIODIC, callback=lambda t: check_connections(t))
     
-    print("System started!")
-    print("Sending soil moisture data every 30 seconds")
-    print("Syncing relay state every 10 seconds")
+    print("✅ System started!")
+    print("⏰ Sensor data every 30s, Relay sync every 15s")
     
-    # Main loop - just keep the program running
     try:
         while True:
-            time.sleep(1)
+            time.sleep(10)
+            # Heartbeat blink
+            if wifi_connected and server_available:
+                led.value(not led.value())
+                time.sleep(0.1)
+                led.value(1)
     except KeyboardInterrupt:
-        print("Stopping system...")
+        print("🛑 Stopping system...")
         sensor_timer.deinit()
         relay_timer.deinit()
-        wifi_timer.deinit()
-        relay.value(0)  # Turn off relay when stopping
+        connection_timer.deinit()
+        relay.value(0)
         led.value(0)
 
 if __name__ == "__main__":

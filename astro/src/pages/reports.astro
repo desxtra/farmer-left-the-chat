@@ -1,0 +1,286 @@
+---
+const apiBase = "http://localhost:3000";
+import "../styles/global.css";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Detailed Reports - Auto Plant Watering</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+
+  <body data-api-base={apiBase} class="bg-gray-50 min-h-screen font-sans">
+    <div class="container mx-auto p-6">
+      <header class="flex items-center justify-between mb-8">
+        <h1 class="text-3xl font-semibold text-gray-900 flex items-center gap-3">
+          Detailed Reports <span class="text-green-600">📊</span>
+        </h1>
+        <a href="/" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition">
+          Back to Dashboard
+        </a>
+      </header>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <!-- Analytics Chart -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-4">7-Day Humidity Trends</h2>
+          <canvas id="humidityChart" height="250"></canvas>
+        </div>
+
+        <!-- Pump Activity -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-4">Pump Activity Summary</h2>
+          <div id="pump-stats" class="space-y-4">
+            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span>Today's Activations</span>
+              <span id="today-activations" class="font-semibold">--</span>
+            </div>
+            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span>Current Status</span>
+              <span id="current-pump-state" class="font-semibold">--</span>
+            </div>
+            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span>Last Activation</span>
+              <span id="last-activation" class="font-semibold text-sm">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Tables -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Recent Sensor Data -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">Recent Sensor Data</h2>
+            <button id="refresh-data" class="bg-gray-100 px-3 py-1 rounded hover:bg-gray-200 transition">
+              Refresh
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-full">
+              <thead>
+                <tr class="border-b">
+                  <th class="text-left py-2">Time</th>
+                  <th class="text-left py-2">Humidity</th>
+                  <th class="text-left py-2">Pump</th>
+                </tr>
+              </thead>
+              <tbody id="sensor-data-body">
+                <!-- Data will be populated here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- System Logs -->
+        <div class="bg-white rounded-2xl shadow-lg p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-semibold">System Logs</h2>
+            <button id="refresh-logs" class="bg-gray-100 px-3 py-1 rounded hover:bg-gray-200 transition">
+              Refresh
+            </button>
+          </div>
+          <div class="overflow-x-auto max-h-96">
+            <table class="min-w-full">
+              <thead>
+                <tr class="border-b">
+                  <th class="text-left py-2">Time</th>
+                  <th class="text-left py-2">Message</th>
+                  <th class="text-left py-2">Type</th>
+                </tr>
+              </thead>
+              <tbody id="logs-body">
+                <!-- Logs will be populated here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const apiBase = document.body.dataset.apiBase;
+      let humidityChart;
+
+      async function loadAnalytics() {
+        try {
+          const response = await fetch(`${apiBase}/analytics?days=7`);
+          const data = await response.json();
+          
+          const dates = data.data.map(item => item.date).reverse();
+          const humidities = data.data.map(item => Math.round(item.avg_humidity)).reverse();
+          const activations = data.data.map(item => item.pump_activations).reverse();
+
+          const ctx = document.getElementById('humidityChart').getContext('2d');
+          
+          if (humidityChart) {
+            humidityChart.destroy();
+          }
+
+          humidityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: dates,
+              datasets: [
+                {
+                  label: 'Average Humidity (%)',
+                  data: humidities,
+                  borderColor: 'rgb(34, 197, 94)',
+                  backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                  tension: 0.4,
+                  fill: true
+                },
+                {
+                  label: 'Pump Activations',
+                  data: activations,
+                  borderColor: 'rgb(59, 130, 246)',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  tension: 0.4,
+                  fill: true,
+                  yAxisID: 'y1'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              interaction: {
+                mode: 'index',
+                intersect: false,
+              },
+              scales: {
+                y: {
+                  type: 'linear',
+                  display: true,
+                  position: 'left',
+                  min: 0,
+                  max: 100
+                },
+                y1: {
+                  type: 'linear',
+                  display: true,
+                  position: 'right',
+                  min: 0
+                }
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error loading analytics:', error);
+        }
+      }
+
+      async function loadPumpStats() {
+        try {
+          const [statsRes, relayRes] = await Promise.all([
+            fetch(`${apiBase}/stats/today`),
+            fetch(`${apiBase}/relay/status`)
+          ]);
+
+          const stats = await statsRes.json();
+          const relay = await relayRes.json();
+
+          document.getElementById('today-activations').textContent = 
+            `${stats.relayToggleCount || 0} times`;
+          document.getElementById('current-pump-state').textContent = 
+            relay.relayState ? 'ACTIVE' : 'INACTIVE';
+          document.getElementById('current-pump-state').className = 
+            `font-semibold ${relay.relayState ? 'text-green-600' : 'text-gray-600'}`;
+          document.getElementById('last-activation').textContent = 
+            new Date(relay.lastUpdated).toLocaleString();
+        } catch (error) {
+          console.error('Error loading pump stats:', error);
+        }
+      }
+
+      async function loadSensorData() {
+        try {
+          const response = await fetch(`${apiBase}/history?limit=10`);
+          const data = await response.json();
+          
+          const tbody = document.getElementById('sensor-data-body');
+          tbody.innerHTML = '';
+
+          data.data.forEach(item => {
+            const row = document.createElement('tr');
+            row.className = 'border-b';
+            row.innerHTML = `
+              <td class="py-2 text-sm">${new Date(item.timestamp).toLocaleString()}</td>
+              <td class="py-2 font-semibold ${item.humidity < 30 ? 'text-red-600' : item.humidity < 60 ? 'text-yellow-600' : 'text-green-600'}">
+                ${item.humidity}%
+              </td>
+              <td class="py-2">
+                <span class="px-2 py-1 rounded text-xs ${item.relay_state ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                  ${item.relay_state ? 'ON' : 'OFF'}
+                </span>
+              </td>
+            `;
+            tbody.appendChild(row);
+          });
+        } catch (error) {
+          console.error('Error loading sensor data:', error);
+        }
+      }
+
+      async function loadLogs() {
+        try {
+          const response = await fetch(`${apiBase}/logs?limit=20`);
+          const data = await response.json();
+          
+          const tbody = document.getElementById('logs-body');
+          tbody.innerHTML = '';
+
+          data.data.forEach(log => {
+            const row = document.createElement('tr');
+            row.className = 'border-b';
+            
+            const typeColors = {
+              system: 'bg-blue-100 text-blue-800',
+              sensor: 'bg-green-100 text-green-800',
+              relay: 'bg-purple-100 text-purple-800',
+              manual: 'bg-orange-100 text-orange-800',
+              error: 'bg-red-100 text-red-800'
+            };
+
+            row.innerHTML = `
+              <td class="py-2 text-sm">${new Date(log.timestamp).toLocaleString()}</td>
+              <td class="py-2">${log.message}</td>
+              <td class="py-2">
+                <span class="px-2 py-1 rounded text-xs ${typeColors[log.type] || 'bg-gray-100 text-gray-800'}">
+                  ${log.type}
+                </span>
+              </td>
+            `;
+            tbody.appendChild(row);
+          });
+        } catch (error) {
+          console.error('Error loading logs:', error);
+        }
+      }
+
+      async function refreshAll() {
+        await Promise.all([
+          loadAnalytics(),
+          loadPumpStats(),
+          loadSensorData(),
+          loadLogs()
+        ]);
+      }
+
+      // Event listeners
+      document.getElementById('refresh-data').addEventListener('click', loadSensorData);
+      document.getElementById('refresh-logs').addEventListener('click', loadLogs);
+
+      // Initial load
+      refreshAll();
+
+      // Auto-refresh every 30 seconds
+      setInterval(refreshAll, 30000);
+    </script>
+  </body>
+</html>
