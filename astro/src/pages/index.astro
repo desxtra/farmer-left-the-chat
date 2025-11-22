@@ -2,6 +2,7 @@
 const apiBase = "http://localhost:3000";
 import "../styles/global.css";
 ---
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -13,10 +14,15 @@ import "../styles/global.css";
   </head>
 
   <!-- pass apiBase via data attribute to avoid template injection issues -->
-  <body data-api-base={apiBase} class="bg-gray-50 flex items-center justify-center min-h-screen font-sans">
+  <body
+    data-api-base={apiBase}
+    class="bg-gray-50 flex items-center justify-center min-h-screen font-sans"
+  >
     <main class="bg-white rounded-3xl shadow-lg p-12 w-[960px] max-w-[92vw]">
       <header class="flex items-center justify-between mb-8">
-        <h1 class="text-4xl font-semibold text-gray-900 flex items-center gap-3">
+        <h1
+          class="text-4xl font-semibold text-gray-900 flex items-center gap-3"
+        >
           Dashboard<span class="text-green-600">🌱</span>
         </h1>
       </header>
@@ -24,16 +30,25 @@ import "../styles/global.css";
       <section class="grid grid-cols-2 gap-8 items-center">
         <div>
           <p class="text-gray-600 text-lg">Soil Humidity</p>
-          <p id="humidity" class="text-7xl font-extrabold text-gray-900 mt-3">--%</p>
+          <p id="humidity" class="text-7xl font-extrabold text-gray-900 mt-3">
+            --%
+          </p>
 
           <div class="w-full bg-gray-200 rounded-full h-5 mt-6">
-            <div id="humidity-bar" class="bg-green-500 h-5 rounded-full transition-all duration-500" style="width:0%"></div>
+            <div
+              id="humidity-bar"
+              class="bg-green-500 h-5 rounded-full transition-all duration-500"
+              style="width:0%"
+            >
+            </div>
           </div>
         </div>
 
         <div class="text-right">
           <p class="text-gray-600 text-lg">Pump:</p>
-          <p id="pump-state" class="text-3xl font-semibold text-gray-500 mt-2">Loading...</p>
+          <p id="pump-state" class="text-3xl font-semibold text-gray-500 mt-2">
+            Loading...
+          </p>
 
           <div class="mt-8 text-left">
             <p class="text-gray-700">Last updated</p>
@@ -46,6 +61,13 @@ import "../styles/global.css";
           <p id="activations" class="text-4xl font-semibold mt-3">--x</p>
         </div>
 
+        <div class="pt-6">
+          <p class="text-gray-700">Auto Watering</p>
+          <p id="auto-watering-status" class="text-2xl font-semibold mt-2 text-blue-600">
+            Loading...
+          </p>
+        </div>
+
         <div class="pt-6 flex justify-end gap-4">
           <a
             href="/reports"
@@ -54,6 +76,14 @@ import "../styles/global.css";
           >
             View Detailed Reports
           </a>
+
+          <button
+            id="auto-water-settings"
+            class="border border-blue-300 text-blue-600 rounded-xl px-6 py-3 text-lg hover:bg-blue-50 transition"
+            title="Auto watering settings"
+          >
+            Auto Water Settings
+          </button>
 
           <button
             id="manual-water"
@@ -68,56 +98,171 @@ import "../styles/global.css";
       <p id="error" class="mt-6 text-sm text-red-600 hidden"></p>
     </main>
 
+    <!-- Auto Watering Settings Modal -->
+    <div id="auto-water-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+      <div class="bg-white rounded-2xl p-8 w-96 max-w-[90vw]">
+        <h2 class="text-2xl font-semibold mb-4">Auto Watering Settings</h2>
+        
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <label class="block text-sm font-medium text-gray-700">
+              Auto Watering Enabled
+            </label>
+            <input 
+              id="auto-enabled" 
+              type="checkbox" 
+              class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 focus:ring-2"
+            />
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Trigger When Humidity Below (%)
+            </label>
+            <input 
+              id="auto-threshold" 
+              type="number" 
+              min="0" 
+              max="100" 
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              placeholder="40"
+            />
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Watering Duration (seconds)
+            </label>
+            <input 
+              id="auto-duration" 
+              type="number" 
+              min="1" 
+              max="60" 
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              placeholder="5"
+            />
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Minimum Interval Between Waterings (seconds)
+            </label>
+            <input 
+              id="auto-interval" 
+              type="number" 
+              min="60" 
+              max="3600" 
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              placeholder="300"
+            />
+            <p class="text-xs text-gray-500 mt-1">Minimum 5 minutes (300 seconds) between auto waterings</p>
+          </div>
+        </div>
+        
+        <div class="flex gap-3 mt-6">
+          <button
+            id="save-auto-settings"
+            class="bg-green-600 text-white rounded-xl px-6 py-3 flex-1 hover:bg-green-700 transition font-medium"
+          >
+            Save Settings
+          </button>
+          <button
+            id="close-auto-modal"
+            class="border border-gray-300 text-gray-800 rounded-xl px-6 py-3 flex-1 hover:bg-gray-100 transition font-medium"
+          >
+            Cancel
+          </button>
+        </div>
+
+        <div id="save-success" class="mt-4 p-3 bg-green-100 text-green-700 rounded-lg hidden">
+          Settings saved successfully!
+        </div>
+
+        <div id="save-error" class="mt-4 p-3 bg-red-100 text-red-700 rounded-lg hidden">
+          Failed to save settings. Please try again.
+        </div>
+      </div>
+    </div>
+
     <script>
       // read apiBase from body data attribute (safe, no template interpolation)
       const apiBase = document.body.dataset.apiBase;
 
-      const $humidity = document.getElementById('humidity');
-      const $humidityBar = document.getElementById('humidity-bar');
-      const $pump = document.getElementById('pump-state');
-      const $activations = document.getElementById('activations');
-      const $lastUpdated = document.getElementById('last-updated');
-      const $manual = document.getElementById('manual-water');
-      const $viewLog = document.getElementById('view-log');
-      const $error = document.getElementById('error');
+      const $humidity = document.getElementById("humidity");
+      const $humidityBar = document.getElementById("humidity-bar");
+      const $pump = document.getElementById("pump-state");
+      const $activations = document.getElementById("activations");
+      const $lastUpdated = document.getElementById("last-updated");
+      const $autoWateringStatus = document.getElementById("auto-watering-status");
+      const $manual = document.getElementById("manual-water");
+      const $autoSettingsBtn = document.getElementById("auto-water-settings");
+      const $autoModal = document.getElementById("auto-water-modal");
+      const $closeAutoModal = document.getElementById("close-auto-modal");
+      const $saveAutoSettings = document.getElementById("save-auto-settings");
+      const $autoEnabled = document.getElementById("auto-enabled");
+      const $autoThreshold = document.getElementById("auto-threshold");
+      const $autoDuration = document.getElementById("auto-duration");
+      const $autoInterval = document.getElementById("auto-interval");
+      const $saveSuccess = document.getElementById("save-success");
+      const $saveError = document.getElementById("save-error");
+      const $error = document.getElementById("error");
 
       let toggling = false;
+      let isSaving = false;
 
       async function fetchStatus() {
-        $error.classList.add('hidden');
+        $error.classList.add("hidden");
         try {
           const [statsRes, relayRes] = await Promise.all([
             fetch(`${apiBase}/stats/today`),
-            fetch(`${apiBase}/relay/status`)
+            fetch(`${apiBase}/relay/status`),
           ]);
 
           if (!statsRes.ok || !relayRes.ok) {
-            throw new Error('Bad response from API');
+            throw new Error("Bad response from API");
           }
 
           const stats = await statsRes.json();
           const relay = await relayRes.json();
 
-          const humidity = typeof stats.averageHumidity === 'number' ? stats.averageHumidity : 0;
-          // backend returns relayToggleCount as relayToggleCount; fallback to older naming
-          const activations = typeof stats.relayToggleCount === 'number' ? stats.relayToggleCount : (stats.relayToggleCountToday ?? 0);
+          // Use currentHumidity instead of averageHumidity for real-time display
+          const humidity =
+            typeof stats.currentHumidity === "number"
+              ? stats.currentHumidity
+              : 0;
+          const activations =
+            typeof stats.relayToggleCount === "number"
+              ? stats.relayToggleCount
+              : (stats.relayToggleCountToday ?? 0);
           const pumpOn = Boolean(relay.relayState);
-          const lastUpdated = relay.lastUpdated ? new Date(relay.lastUpdated) : new Date();
+          const lastUpdated = relay.lastUpdated
+            ? new Date(relay.lastUpdated)
+            : new Date();
 
           // Update DOM
           $humidity.textContent = `${humidity}%`;
           $humidityBar.style.width = `${Math.max(0, Math.min(100, humidity))}%`;
 
-          $pump.textContent = pumpOn ? 'ON' : 'OFF';
-          $pump.classList.toggle('text-green-600', pumpOn);
-          $pump.classList.toggle('text-gray-500', !pumpOn);
+          $pump.textContent = pumpOn ? "ON" : "OFF";
+          $pump.classList.toggle("text-green-600", pumpOn);
+          $pump.classList.toggle("text-gray-500", !pumpOn);
 
           $activations.textContent = `${activations}x`;
           $lastUpdated.textContent = lastUpdated.toLocaleString();
+
+          // Update auto watering status
+          if (stats.autoWatering) {
+            const status = stats.autoWatering.enabled ? 
+              `ENABLED (${stats.autoWatering.threshold}%)` : 
+              'DISABLED';
+            $autoWateringStatus.textContent = status;
+            $autoWateringStatus.className = `text-2xl font-semibold mt-2 ${stats.autoWatering.enabled ? 'text-green-600' : 'text-gray-500'}`;
+          }
+
         } catch (err) {
           console.error(err);
-          $error.textContent = 'Unable to reach backend. Check the server.';
-          $error.classList.remove('hidden');
+          $error.textContent = "Unable to reach backend. Check the server.";
+          $error.classList.remove("hidden");
         }
       }
 
@@ -125,47 +270,160 @@ import "../styles/global.css";
         if (toggling) return;
         toggling = true;
         $manual.disabled = true;
-        $error.classList.add('hidden');
+        $error.classList.add("hidden");
 
         try {
           const res = await fetch(`${apiBase}/relay/toggle`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'toggle' })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "toggle" }),
           });
 
-          if (!res.ok) throw new Error('Toggle failed');
+          if (!res.ok) throw new Error("Toggle failed");
 
           const data = await res.json();
 
-          if (typeof data.relayState === 'boolean') {
-            $pump.textContent = data.relayState ? 'ON' : 'OFF';
-            $pump.classList.toggle('text-green-600', data.relayState);
-            $pump.classList.toggle('text-gray-500', !data.relayState);
-            $lastUpdated.textContent = data.timestamp ? new Date(data.timestamp).toLocaleString() : new Date().toLocaleString();
+          if (typeof data.relayState === "boolean") {
+            $pump.textContent = data.relayState ? "ON" : "OFF";
+            $pump.classList.toggle("text-green-600", data.relayState);
+            $pump.classList.toggle("text-gray-500", !data.relayState);
+            $lastUpdated.textContent = data.timestamp
+              ? new Date(data.timestamp).toLocaleString()
+              : new Date().toLocaleString();
             await fetchStatus();
           } else {
             await fetchStatus();
           }
         } catch (err) {
           console.error(err);
-          $error.textContent = 'Manual toggle failed.';
-          $error.classList.remove('hidden');
+          $error.textContent = "Manual toggle failed.";
+          $error.classList.remove("hidden");
         } finally {
           toggling = false;
           $manual.disabled = false;
         }
       }
 
-      // $viewLog.addEventListener('click', () => {
-      //   window.open(`${apiBase}/history?limit=200`, '_blank');
-      // });
+      // Load auto watering settings
+      async function loadAutoWateringSettings() {
+        try {
+          const response = await fetch(`${apiBase}/auto-watering/settings`);
+          if (!response.ok) throw new Error('Failed to load settings');
+          
+          const settings = await response.json();
+          
+          $autoEnabled.checked = settings.enabled;
+          $autoThreshold.value = settings.threshold;
+          $autoDuration.value = settings.duration;
+          $autoInterval.value = settings.minInterval;
 
-      $manual.addEventListener('click', manualToggle);
+          // Hide any previous messages
+          $saveSuccess.classList.add('hidden');
+          $saveError.classList.add('hidden');
+          
+        } catch (error) {
+          console.error('Error loading auto watering settings:', error);
+          showMessage($saveError, 'Failed to load settings');
+        }
+      }
 
+      // Save auto watering settings
+      async function saveAutoWateringSettings() {
+        if (isSaving) return;
+        
+        isSaving = true;
+        $saveAutoSettings.disabled = true;
+        $saveAutoSettings.textContent = 'Saving...';
+
+        try {
+          const settings = {
+            enabled: $autoEnabled.checked,
+            threshold: parseInt($autoThreshold.value),
+            duration: parseInt($autoDuration.value),
+            minInterval: parseInt($autoInterval.value)
+          };
+
+          // Validate inputs
+          if (settings.threshold < 0 || settings.threshold > 100) {
+            throw new Error('Threshold must be between 0-100');
+          }
+          if (settings.duration < 1 || settings.duration > 60) {
+            throw new Error('Duration must be between 1-60 seconds');
+          }
+          if (settings.minInterval < 60 || settings.minInterval > 3600) {
+            throw new Error('Interval must be between 60-3600 seconds');
+          }
+
+          const response = await fetch(`${apiBase}/auto-watering/settings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+          });
+
+          if (!response.ok) throw new Error('Server returned error');
+
+          const result = await response.json();
+          
+          showMessage($saveSuccess, 'Settings saved successfully!');
+          
+          // Close modal after 2 seconds
+          setTimeout(() => {
+            $autoModal.classList.add('hidden');
+            fetchStatus(); // Refresh to show updated status
+          }, 2000);
+
+        } catch (error) {
+          console.error('Error saving auto watering settings:', error);
+          showMessage($saveError, error.message || 'Failed to save settings');
+        } finally {
+          isSaving = false;
+          $saveAutoSettings.disabled = false;
+          $saveAutoSettings.textContent = 'Save Settings';
+        }
+      }
+
+      function showMessage(element, message) {
+        element.textContent = message;
+        element.classList.remove('hidden');
+        setTimeout(() => {
+          element.classList.add('hidden');
+        }, 5000);
+      }
+
+      // Event listeners for auto watering modal
+      $autoSettingsBtn.addEventListener('click', () => {
+        loadAutoWateringSettings();
+        $autoModal.classList.remove('hidden');
+      });
+
+      $closeAutoModal.addEventListener('click', () => {
+        $autoModal.classList.add('hidden');
+      });
+
+      $saveAutoSettings.addEventListener('click', saveAutoWateringSettings);
+
+      // Close modal when clicking outside
+      $autoModal.addEventListener('click', (e) => {
+        if (e.target === $autoModal) {
+          $autoModal.classList.add('hidden');
+        }
+      });
+
+      // Close modal with Escape key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !$autoModal.classList.contains('hidden')) {
+          $autoModal.classList.add('hidden');
+        }
+      });
+
+      $manual.addEventListener("click", manualToggle);
+
+      // Initial load
       fetchStatus();
+      loadAutoWateringSettings();
+      
       const interval = setInterval(fetchStatus, 1000);
-      window.addEventListener('beforeunload', () => clearInterval(interval));
+      window.addEventListener("beforeunload", () => clearInterval(interval));
     </script>
   </body>
 </html>
